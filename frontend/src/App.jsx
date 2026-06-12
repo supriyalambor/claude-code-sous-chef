@@ -7,7 +7,14 @@ const supabase = createClient(
   import.meta.env.VITE_SUPABASE_ANON_KEY
 );
 
-const API_URL = import.meta.env.VITE_API_URL || "http://localhost:8000";
+// Normalize the API base URL so a missing scheme or trailing slash in the
+// VITE_API_URL env var can't break requests (e.g. "host.app" -> "https://host.app").
+const API_URL = (() => {
+  let base = import.meta.env.VITE_API_URL || "http://localhost:8000";
+  base = base.trim().replace(/\/+$/, "");                 // drop trailing slash(es)
+  if (base && !/^https?:\/\//i.test(base)) base = "https://" + base; // ensure scheme
+  return base;
+})();
 
 const PLATFORMS = {
   licious:   { label: "Licious",   color: "#E8473F", emoji: "🥩", search: q => `https://www.licious.in/search?q=${encodeURIComponent(q)}` },
