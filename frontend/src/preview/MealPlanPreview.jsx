@@ -13,13 +13,13 @@ const TYPE = {
   Chicken: "#F59E0B", Fish: "#38BDF8", Veg: "#4ADE80", "Khichdi Special": "#C084FC",
 };
 const WEEK = [
-  { day: "Mon", type: "Chicken", meal: "Aloo Gobi Gravy + Sem Sabzi + Chicken Sukka" },
-  { day: "Tue", type: "Veg",     meal: "Aloo Matar Paneer + Parwal + Paneer Bhurji" },
-  { day: "Wed", type: "Chicken", meal: "Palak Dal + Methi + Chicken Masala" },
-  { day: "Thu", type: "Veg",     meal: "Black Chana + Baingan Bharta + Paneer Bhurji" },
-  { day: "Fri", type: "Fish",    meal: "Lauki Dal + Beetroot + Mackerel Rava Fry" },
+  { day: "Mon", type: "Chicken", meal: "Aloo Gobi Gravy + Sem Sabzi + Chicken Sukka + Parathas" },
+  { day: "Tue", type: "Veg",     meal: "Aloo Matar Paneer + Parwal + Paneer Bhurji + Roti" },
+  { day: "Wed", type: "Chicken", meal: "Palak Dal + Methi + Chicken Masala + Rice" },
+  { day: "Thu", type: "Veg",     meal: "Black Chana + Baingan Bharta + Paneer Bhurji + Rice" },
+  { day: "Fri", type: "Fish",    meal: "Lauki Dal + Beetroot + Mackerel Rava Fry + Rice" },
   { day: "Sat", type: "Khichdi Special", meal: "Khichdi + Chokha + Mackerel Dry Fry" },
-  { day: "Sun", type: "Veg",     meal: "Rajma + Beetroot + Paneer Bhurji" },
+  { day: "Sun", type: "Veg",     meal: "Rajma + Beetroot + Paneer Bhurji + Rice" },
 ];
 
 // ── Progress ring ────────────────────────────────────────────────────────────
