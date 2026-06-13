@@ -70,4 +70,4 @@ async def weekly_plan():
 
 @app.get("/health")
 async def health():
-    return {"status": "ok", "agent": "Sous Chef v2", "build": "rings-1"}
+    return {"status": "ok", "agent": "Sous Chef v2", "build": "rings-2"}
