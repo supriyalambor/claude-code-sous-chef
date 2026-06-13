@@ -100,6 +100,36 @@ function MealPlanCard({ plan }) {
   );
 }
 
+// ── Proactive daily spend check-in the agent posts once a day ────────────────
+function DailyCheckin({ onLog, onSkip }) {
+  const [platform, setPlatform] = useState("instamart");
+  const [amount, setAmount] = useState("");
+  const [note, setNote] = useState("");
+  return (
+    <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }}
+      style={{ marginTop: 8, background: T.panel, border: `1px solid ${T.line}`, borderRadius: 16, padding: 14 }}>
+      <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 10 }}>
+        {Object.entries(PLATFORMS).map(([pid, pconf]) => (
+          <button key={pid} onClick={() => setPlatform(pid)} style={{ padding: "6px 11px", borderRadius: 14, fontSize: 12, fontWeight: 600, cursor: "pointer",
+            border: `1px solid ${platform === pid ? pconf.color : T.line}`,
+            background: platform === pid ? pconf.color + "22" : "transparent",
+            color: platform === pid ? pconf.color : T.sub }}>{pconf.emoji} {pconf.label}</button>
+        ))}
+      </div>
+      <div style={{ display: "flex", gap: 8, marginBottom: 8 }}>
+        <input value={amount} onChange={e => setAmount(e.target.value)} placeholder="₹ amount" inputMode="numeric"
+          style={{ flex: 1, background: T.bg, border: `1px solid ${T.line}`, borderRadius: 10, padding: "10px 12px", color: T.text, fontSize: 13, outline: "none" }} />
+        <input value={note} onChange={e => setNote(e.target.value)} placeholder="note (optional)"
+          style={{ flex: 1, background: T.bg, border: `1px solid ${T.line}`, borderRadius: 10, padding: "10px 12px", color: T.text, fontSize: 13, outline: "none" }} />
+      </div>
+      <div style={{ display: "flex", gap: 8 }}>
+        <button onClick={() => amount && onLog(platform, amount, note)} style={{ flex: 1, padding: "10px", borderRadius: 10, border: "none", cursor: "pointer", fontWeight: 700, fontSize: 13, color: "#06210F", background: `linear-gradient(135deg, ${T.accent}, ${T.accent2})` }}>Log spend</button>
+        <button onClick={onSkip} style={{ padding: "10px 14px", borderRadius: 10, border: `1px solid ${T.line}`, cursor: "pointer", fontWeight: 600, fontSize: 13, color: T.sub, background: "transparent" }}>Nothing today</button>
+      </div>
+    </motion.div>
+  );
+}
+
 export default function App() {
   const [messages, setMessages] = useState([{
     role: "assistant",
@@ -140,6 +170,33 @@ export default function App() {
       if (Array.isArray(shopData) && shopData.length) setShoppingList(shopData);
     } catch {}
   }
+
+  async function logSpend(platform, amount, note) {
+    if (!amount) return;
+    await fetch(`${API_URL}/api/expenses/`, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ platform, amount: parseInt(amount), note: note || "" }),
+    });
+    await loadData();
+  }
+
+  function markCheckinDone() {
+    try { localStorage.setItem("sc_lastCheckin", new Date().toDateString()); } catch {}
+  }
+
+  // Proactive daily spend check-in — the agent initiates once per day.
+  useEffect(() => {
+    let done;
+    try { done = localStorage.getItem("sc_lastCheckin") === new Date().toDateString(); } catch {}
+    if (done) return;
+    const h = new Date().getHours();
+    const greet = h < 12 ? "Morning" : h < 17 ? "Afternoon" : "Evening";
+    const t = setTimeout(() => setMessages(prev => [...prev, {
+      role: "assistant", type: "spendcheck",
+      content: `${greet}! 👋 Quick daily check-in — did you spend anything today? Log it and I'll keep your budget on track.`,
+    }]), 700);
+    return () => clearTimeout(t);
+  }, []);
 
   async function sendMessage(text) {
     const msg = text || input;
@@ -352,6 +409,33 @@ export default function App() {
                     </div>
                   </div>
                 </div>
+              );
+
+              if (msg.type === "spendcheck") return (
+                <motion.div key={i} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}
+                  style={{ display: "flex", gap: 10, marginBottom: 16, alignItems: "flex-end" }}>
+                  <div style={{ width: 32, height: 32, borderRadius: 10, background: `linear-gradient(135deg, ${T.accent}, ${T.accent2})`, display: "grid", placeItems: "center", fontSize: 15, flexShrink: 0 }}>🍳</div>
+                  <div style={{ maxWidth: "88%" }}>
+                    <div style={{ background: T.panel2, border: `1px solid ${T.line}`, borderRadius: "4px 16px 16px 16px", padding: "12px 16px", fontSize: 13, lineHeight: 1.6, color: T.text }}>
+                      {msg.content}
+                    </div>
+                    {msg.done ? (
+                      <div style={{ marginTop: 6, fontSize: 12.5, color: T.sub, paddingLeft: 4 }}>{msg.doneNote}</div>
+                    ) : (
+                      <DailyCheckin
+                        onLog={async (p, a, n) => {
+                          await logSpend(p, a, n);
+                          markCheckinDone();
+                          setMessages(prev => prev.map((m, idx) => idx === i ? { ...m, done: true, doneNote: `Logged ${fmt(a)} on ${PLATFORMS[p]?.label || p} ✅` } : m));
+                        }}
+                        onSkip={() => {
+                          markCheckinDone();
+                          setMessages(prev => prev.map((m, idx) => idx === i ? { ...m, done: true, doneNote: "No spend today — nice, you're on budget. 👍" } : m));
+                        }}
+                      />
+                    )}
+                  </div>
+                </motion.div>
               );
 
               return (
