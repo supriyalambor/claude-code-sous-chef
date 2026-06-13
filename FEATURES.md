@@ -19,22 +19,17 @@ This is the backlog the build routine works through. See `VISION.md` for the why
 
 ## Phase 1 — Extend what exists (no auth needed)
 
-- [ ] **Roll the agent UI into the live app.** Replace the plain chat/tabs in
-  `frontend/src/App.jsx` with the agent-first conversation + rich cards from
-  `frontend/src/preview/MealPlanPreview.jsx`, wired to the real `/api/chat` and
-  meal/shopping/expense endpoints. Keep voice input. Acceptance: live app (no
-  `?preview` flag) shows the new design and still talks to the backend.
+- [x] **Roll the agent UI into the live app.** Sleek-health agent UI + rings card now
+  live in `frontend/src/App.jsx`, wired to real endpoints, voice kept. (Shipped.)
 
 - [ ] **Accept → grocery gate.** Generating a plan should not auto-build groceries;
   the grocery list is triggered only when the user taps Accept. Add an `accepted`
   state on `meal_plans` and an explicit accept action. Acceptance: a plan can exist
   un-accepted; grocery list appears only after accept.
 
-- [ ] **Daily spend check-in with categories.** Proactively ask once a day "did you
-  spend anywhere?" and log into categories beyond food: `grocery`, `toiletries`,
-  `cleaning`, `health`, `other`. Extend the `expenses` table with a `category` column
-  and the Spend UI with category chips. Acceptance: a non-food spend can be logged and
-  shows in the monthly budget total.
+- [ ] **Spend categories.** Extend `expenses` with a `category` column (`grocery`,
+  `toiletries`, `cleaning`, `health`, `other`) and add category chips to the daily
+  check-in + Spend UI. (Daily spend check-in itself is shipped; categories pending.)
 
 - [ ] **Spend insights.** Monthly breakdown by category with the existing budget
   projection (₹38,000 target). Simple bars/rings in the Spend view.
