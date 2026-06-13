@@ -750,12 +750,32 @@ async def run_agent(messages: list) -> dict:
     meal_plan_context = ""
     week_plan = None
     shopping_list = None
+    variety_nudge = ""
 
     if wants_plan or wants_today:
         history = await get_history()
         prefs_raw = await execute_tool("get_preferences", {})
         prefs = json.loads(prefs_raw)
         week_plan = plan_week(history, avoid=prefs.get("avoid",[]), replace=prefs.get("replace",{}))
+
+        # Proactively notice back-to-back chicken and offer to mix it up.
+        # Only for full-week plans (a single day can't be "back to back").
+        if wants_plan:
+            longest, current = [], []
+            for d in week_plan:
+                if d["day_type"] == "chicken":
+                    current.append(d["day"])
+                    if len(current) > len(longest):
+                        longest = current[:]
+                else:
+                    current = []
+            if len(longest) >= 2:
+                days_str = ", ".join(longest[:-1]) + " & " + longest[-1]
+                variety_nudge = (
+                    f"\n\nHeads up — that's chicken {len(longest)} days running ({days_str}). "
+                    f"I've varied the style (gravy vs dry/pepper) so it's not identical, but if you're "
+                    f"bored of chicken just say the word and I'll swap a day for fish or veg. \U0001f413"
+                )
         if wants_today:
             # Plan for TODAY — find today's index in the generated week plan
             # plan_week generates Mon-Sun starting next Monday
@@ -826,4 +846,4 @@ Do not change any meal. Do not show Lunch and Dinner separately."""
             final = msg.content
             break
 
-    return {"response": final.strip(), "shopping_list": shopping_list, "meal_plan": None}
+    return {"response": final.strip() + variety_nudge, "shopping_list": shopping_list, "meal_plan": None}
