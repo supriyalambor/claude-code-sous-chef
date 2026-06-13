@@ -133,9 +133,11 @@ export default function App() {
       ]);
       const expData = await expRes.json();
       const shopData = await shopRes.json();
-      setExpenses(expData.expenses || []);
-      setTotalMonth(expData.total || 0);
-      if (shopData?.length) setShoppingList(shopData);
+      // Guard against error payloads (e.g. Supabase returning an error object,
+      // not a list) so the Spend tab can never crash to a black screen.
+      setExpenses(Array.isArray(expData?.expenses) ? expData.expenses : []);
+      setTotalMonth(Number(expData?.total) || 0);
+      if (Array.isArray(shopData) && shopData.length) setShoppingList(shopData);
     } catch {}
   }
 
@@ -504,7 +506,7 @@ export default function App() {
                   </div>
                 );
               })}
-              <button onClick={() => sendMessage("Email me the grocery list")} style={{ width: "100%", padding: 14, background: `linear-gradient(135deg, ${T.accent}, ${T.accent2})`, border: "none", borderRadius: 12, color: "#06210F", fontWeight: 700, fontSize: 14, cursor: "pointer", fontFamily: "'Inter',sans-serif", marginTop: 8 }}>
+              <button onClick={() => { setActiveTab("chat"); sendMessage("Email the grocery list to me and Vivek"); }} style={{ width: "100%", padding: 14, background: `linear-gradient(135deg, ${T.accent}, ${T.accent2})`, border: "none", borderRadius: 12, color: "#06210F", fontWeight: 700, fontSize: 14, cursor: "pointer", fontFamily: "'Inter',sans-serif", marginTop: 8 }}>
                 📧 Email to Vivek
               </button>
             </>
