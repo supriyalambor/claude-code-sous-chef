@@ -36,7 +36,7 @@ const DATE_LABEL = TODAY.toLocaleDateString("en-IN", { weekday: "long", day: "nu
 const DAY_OF_MONTH = TODAY.getDate();
 const DAY_TYPES = { 0:"flex", 1:"chicken", 2:"fish", 3:"chicken", 4:"veg", 5:"fish", 6:"chicken" };
 const DAY_LABELS = { chicken:"🥩 Chicken", fish:"🐟 Fish", veg:"🥦 Veg", flex:"🍽️ Flexible" };
-const DAY_DOT = { chicken:"#F59E0B", fish:"#38BDF8", veg:"#4ADE80", flex:"#C084FC" };
+const DAY_DOT = { chicken:"#F59E0B", fish:"#38BDF8", veg:"#4ADE80", flex:"#C084FC", khichdi:"#C084FC" };
 const todayType = DAY_TYPES[TODAY.getDay()];
 
 function fmt(n) { return "₹" + Number(n || 0).toLocaleString("en-IN"); }
@@ -70,6 +70,33 @@ function Ring({ value, target, label, sub, color, size = 88, display }) {
         <div style={{ fontSize: 10, color: T.sub }}>{sub}</div>
       </div>
     </div>
+  );
+}
+
+// ── Meal-plan card the agent renders inside chat (rings + day rows) ──────────
+function MealPlanCard({ plan }) {
+  const days = plan.days || [];
+  const budget = Number(plan.weekly_budget || 9500);
+  const total = Number(plan.weekly_total || 0);
+  return (
+    <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.4 }}
+      style={{ marginTop: 8, background: `linear-gradient(180deg, ${T.panel2}, ${T.panel})`, border: `1px solid ${T.line}`, borderRadius: 18, padding: 16 }}>
+      <div style={{ display: "flex", justifyContent: "space-around", paddingBottom: 14, marginBottom: 12, borderBottom: `1px solid ${T.line}` }}>
+        <Ring size={72} value={1} target={1} display={plan.kcal_target} label="Cals" sub="target/day" color={T.accent2} />
+        <Ring size={72} value={1} target={1} display={`${plan.protein_target}g`} label="Protein" sub="target/day" color={T.accent} />
+        <Ring size={72} value={total} target={budget} display={fmt(total)} label="Budget" sub={`of ${fmt(budget)}`} color={total > budget ? T.danger : T.accent3} />
+      </div>
+      <div style={{ display: "flex", flexDirection: "column", gap: 9 }}>
+        {days.map((d, i) => (
+          <motion.div key={d.day + i} initial={{ opacity: 0, x: -8 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: 0.1 + i * 0.05 }}
+            style={{ display: "flex", gap: 10, alignItems: "flex-start" }}>
+            <span style={{ width: 34, flexShrink: 0, fontSize: 11, fontWeight: 700, color: T.sub, paddingTop: 1 }}>{d.day.slice(0, 3)}</span>
+            <span style={{ width: 7, height: 7, marginTop: 5, borderRadius: 7, flexShrink: 0, background: DAY_DOT[d.day_type] || T.sub, boxShadow: `0 0 8px ${DAY_DOT[d.day_type] || "transparent"}` }} />
+            <span style={{ fontSize: 12.5, color: T.text, lineHeight: 1.4 }}>{d.meal}</span>
+          </motion.div>
+        ))}
+      </div>
+    </motion.div>
   );
 }
 
@@ -135,8 +162,16 @@ export default function App() {
       const data = await res.json();
       setMessages(prev => prev.filter(m => m.type !== "typing"));
 
-      if (data.shopping_list?.length) {
-        setShoppingList(data.shopping_list);
+      if (data.shopping_list?.length) setShoppingList(data.shopping_list);
+
+      if (data.meal_plan?.days?.length) {
+        // Structured plan → render rich card + rings in chat (stay on chat tab).
+        setMessages(prev => [...prev, {
+          role: "assistant", type: "plan",
+          mealPlan: data.meal_plan,
+          shoppingList: data.shopping_list || [],
+        }]);
+      } else if (data.shopping_list?.length) {
         setMessages(prev => [...prev, {
           role: "assistant", type: "plan",
           content: data.response,
@@ -316,21 +351,42 @@ export default function App() {
                 <motion.div key={i} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.3 }}
                   style={{ display: "flex", gap: 10, marginBottom: 16, justifyContent: isUser ? "flex-end" : "flex-start", alignItems: "flex-end" }}>
                   {!isUser && <div style={{ width: 32, height: 32, borderRadius: 10, background: `linear-gradient(135deg, ${T.accent}, ${T.accent2})`, display: "grid", placeItems: "center", fontSize: 15, flexShrink: 0 }}>🍳</div>}
-                  <div style={{ maxWidth: "80%" }}>
-                    <div style={{
-                      background: isUser ? `linear-gradient(135deg, ${T.accent}, ${T.accent2})` : T.panel2,
-                      border: `1px solid ${isUser ? "transparent" : T.line}`,
-                      borderRadius: isUser ? "16px 4px 16px 16px" : "4px 16px 16px 16px",
-                      padding: "12px 16px", fontSize: 13, lineHeight: 1.7,
-                      whiteSpace: "pre-wrap", color: isUser ? "#06210F" : T.text,
-                      fontWeight: isUser ? 600 : 400,
-                    }}>
-                      {renderText(msg.content)}
-                    </div>
-                    {msg.type === "plan" && msg.shoppingList?.length > 0 && (
-                      <button onClick={() => setActiveTab("shop")} style={{ marginTop: 8, padding: "7px 14px", background: "rgba(251,191,36,.12)", border: `1px solid rgba(251,191,36,.4)`, borderRadius: 20, color: T.accent3, fontSize: 11.5, fontWeight: 600, cursor: "pointer", fontFamily: "'Inter',sans-serif" }}>
-                        View shopping list →
-                      </button>
+                  <div style={{ maxWidth: msg.mealPlan ? "92%" : "80%" }}>
+                    {msg.mealPlan ? (
+                      <>
+                        <div style={{ background: T.panel2, border: `1px solid ${T.line}`, borderRadius: "4px 16px 16px 16px", padding: "11px 15px", fontSize: 13, color: T.text }}>
+                          Here's your week 👇
+                        </div>
+                        <MealPlanCard plan={msg.mealPlan} />
+                        {msg.mealPlan.nudge ? (
+                          <div style={{ marginTop: 8, background: "rgba(245,158,11,.1)", border: `1px solid rgba(245,158,11,.3)`, borderRadius: 14, padding: "10px 14px", fontSize: 12.5, lineHeight: 1.5, color: T.text }}>
+                            {msg.mealPlan.nudge}
+                          </div>
+                        ) : null}
+                        {msg.shoppingList?.length > 0 && (
+                          <button onClick={() => setActiveTab("shop")} style={{ marginTop: 8, padding: "8px 14px", background: `linear-gradient(135deg, ${T.accent}, ${T.accent2})`, border: "none", borderRadius: 20, color: "#06210F", fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: "'Inter',sans-serif" }}>
+                            🛒 View shopping list →
+                          </button>
+                        )}
+                      </>
+                    ) : (
+                      <>
+                        <div style={{
+                          background: isUser ? `linear-gradient(135deg, ${T.accent}, ${T.accent2})` : T.panel2,
+                          border: `1px solid ${isUser ? "transparent" : T.line}`,
+                          borderRadius: isUser ? "16px 4px 16px 16px" : "4px 16px 16px 16px",
+                          padding: "12px 16px", fontSize: 13, lineHeight: 1.7,
+                          whiteSpace: "pre-wrap", color: isUser ? "#06210F" : T.text,
+                          fontWeight: isUser ? 600 : 400,
+                        }}>
+                          {renderText(msg.content)}
+                        </div>
+                        {msg.type === "plan" && msg.shoppingList?.length > 0 && (
+                          <button onClick={() => setActiveTab("shop")} style={{ marginTop: 8, padding: "7px 14px", background: "rgba(251,191,36,.12)", border: `1px solid rgba(251,191,36,.4)`, borderRadius: 20, color: T.accent3, fontSize: 11.5, fontWeight: 600, cursor: "pointer", fontFamily: "'Inter',sans-serif" }}>
+                            View shopping list →
+                          </button>
+                        )}
+                      </>
                     )}
                   </div>
                   {isUser && <div style={{ width: 32, height: 32, borderRadius: 10, background: T.panel2, border: `1px solid ${T.line}`, display: "grid", placeItems: "center", fontSize: 13, flexShrink: 0, fontWeight: 700 }}>S</div>}

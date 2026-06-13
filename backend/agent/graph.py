@@ -751,6 +751,7 @@ async def run_agent(messages: list) -> dict:
     week_plan = None
     shopping_list = None
     variety_nudge = ""
+    meal_plan_out = None
 
     if wants_plan or wants_today:
         history = await get_history()
@@ -793,6 +794,19 @@ async def run_agent(messages: list) -> dict:
         pantry_raw = await execute_tool("get_pantry", {})
         pantry = json.loads(pantry_raw)
         shopping_list = generate_shopping_list(week_plan, in_stock=pantry.get("in_stock", []))
+
+        # Structured plan for the UI to render as cards + rings (text stays for chat).
+        weekly_total = sum(int(i.get("estimatedPrice", i.get("estimated_price", 0)) or 0)
+                           for i in shopping_list)
+        meal_plan_out = {
+            "days": [{"day": d["day"], "day_type": d["day_type"], "meal": d["lunch"]}
+                     for d in week_plan],
+            "kcal_target": 1700,        # Supriya's daily target (plan is built to it)
+            "protein_target": 130,      # g/day
+            "weekly_total": weekly_total,
+            "weekly_budget": 9500,      # ~₹38,000 monthly / 4 weeks
+            "nudge": variety_nudge.strip(),
+        }
         def format_day_type(dt):
             labels = {"chicken": "Chicken", "fish": "Fish", "veg": "Veg",
                      "khichdi": "Khichdi Special", "flex": "Flexible"}
@@ -846,4 +860,4 @@ Do not change any meal. Do not show Lunch and Dinner separately."""
             final = msg.content
             break
 
-    return {"response": final.strip() + variety_nudge, "shopping_list": shopping_list, "meal_plan": None}
+    return {"response": final.strip() + variety_nudge, "shopping_list": shopping_list, "meal_plan": meal_plan_out}
