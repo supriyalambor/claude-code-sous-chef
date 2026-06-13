@@ -65,7 +65,39 @@ This is the backlog the build routine works through. See `VISION.md` for the why
 - [ ] **Blood-test suggestions.** From patterns, suggest monthly/quarterly tests,
   framed as "discuss with your doctor." Must not diagnose.
 
+## Phase 1.5 — The "agent that works for me" (data-driven autonomy)
+
+The vision in the user's words: an agent that reminds them, logs their data, scans
+bills to learn prices, recommends monthly groceries from real usage, detects habit
+changes, and checks daily whether they actually ate the plan.
+
+- [x] **Proactive daily spend check-in** — agent asks "spend anything today?" once a
+  day with inline logging. (Shipped.)
+- [x] **Daily meal-adherence check** — agent asks "did you eat the plan, or switch it
+  up?" and logs the actual meal. (Shipped.)
+- [ ] **Receipt / bill scanning (OCR)** — user photographs a grocery bill; the agent
+  extracts line items + prices and stores them. *Needs a vision-capable model (the
+  current Groq llama-3.1-8b is text-only) — decision required on model/service.*
+- [ ] **Price intelligence store** — a `prices` table (item, price, source, date) fed
+  by scanned bills + manual entry, so cost estimates use real recent prices instead of
+  the hardcoded Mango list. Shopping-list totals read from here.
+- [ ] **Monthly grocery recommendation** — from logged consumption (pantry usage +
+  purchases + adherence), predict and propose the month's staples and quantities.
+- [ ] **Habit-change detection** — track eating/spending time-series; surface shifts
+  ("you've had chicken 5×/week lately, up from 3", "grocery spend trending +15%").
+- [ ] **Smart reminders** — proactive nudges beyond app-open: "weekly shop due in 2
+  days", "₹2k left in budget", "you're low on atta". Needs a delivery channel (daily
+  cron + email/push, building on the existing Friday cron).
+- [ ] **Real macros** — compute actual kcal/protein per meal for both people so the
+  rings reflect reality, not fixed targets.
+
+## Open decisions (block dependent features)
+- **Calorie-burn source** for adaptive nutrition: manual entry vs wearable.
+- **Vision model** for bill scanning: which multimodal model/service.
+- **Auth/accounts**: needed before per-person health data is meaningful.
+
 ---
 
 ## Done
-<!-- - [x] Example completed feature (PR #N) -->
+- [x] Proactive daily spend check-in (chat-initiated, inline logging)
+- [x] Daily meal-adherence check (logs actual vs planned)

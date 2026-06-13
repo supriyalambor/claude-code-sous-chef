@@ -130,6 +130,29 @@ function DailyCheckin({ onLog, onSkip }) {
   );
 }
 
+// ── Daily meal-adherence check: "did you actually eat the plan?" ─────────────
+function AteCheckin({ onYes, onElse }) {
+  const [showInput, setShowInput] = useState(false);
+  const [text, setText] = useState("");
+  return (
+    <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} style={{ marginTop: 8 }}>
+      {!showInput ? (
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+          <button onClick={onYes} style={{ padding: "9px 14px", borderRadius: 20, border: "none", cursor: "pointer", fontSize: 13, fontWeight: 700, color: "#06210F", background: `linear-gradient(135deg, ${T.accent}, ${T.accent2})` }}>✅ Yes, as planned</button>
+          <button onClick={() => setShowInput(true)} style={{ padding: "9px 14px", borderRadius: 20, border: `1px solid ${T.line}`, cursor: "pointer", fontSize: 13, fontWeight: 600, color: T.text, background: T.panel }}>✏️ Ate something else</button>
+        </div>
+      ) : (
+        <div style={{ display: "flex", gap: 8 }}>
+          <input autoFocus value={text} onChange={e => setText(e.target.value)} onKeyDown={e => e.key === "Enter" && text.trim() && onElse(text)}
+            placeholder="What did you actually eat?"
+            style={{ flex: 1, background: T.bg, border: `1px solid ${T.line}`, borderRadius: 10, padding: "10px 12px", color: T.text, fontSize: 13, outline: "none" }} />
+          <button onClick={() => text.trim() && onElse(text)} style={{ padding: "10px 14px", borderRadius: 10, border: "none", cursor: "pointer", fontWeight: 700, fontSize: 13, color: "#06210F", background: `linear-gradient(135deg, ${T.accent}, ${T.accent2})` }}>Log</button>
+        </div>
+      )}
+    </motion.div>
+  );
+}
+
 export default function App() {
   const [messages, setMessages] = useState([{
     role: "assistant",
@@ -197,6 +220,22 @@ export default function App() {
     }]), 700);
     return () => clearTimeout(t);
   }, []);
+
+  // Proactive daily meal-adherence check — "did you eat what I planned?"
+  useEffect(() => {
+    let done;
+    try { done = localStorage.getItem("sc_lastAteCheck") === new Date().toDateString(); } catch {}
+    if (done) return;
+    const t = setTimeout(() => setMessages(prev => [...prev, {
+      role: "assistant", type: "atecheck",
+      content: "And did you stick to today's meal plan, or switch it up? Knowing what you really ate helps me plan better and spot patterns.",
+    }]), 1400);
+    return () => clearTimeout(t);
+  }, []);
+
+  function markAteDone() {
+    try { localStorage.setItem("sc_lastAteCheck", new Date().toDateString()); } catch {}
+  }
 
   async function sendMessage(text) {
     const msg = text || input;
@@ -431,6 +470,33 @@ export default function App() {
                         onSkip={() => {
                           markCheckinDone();
                           setMessages(prev => prev.map((m, idx) => idx === i ? { ...m, done: true, doneNote: "No spend today — nice, you're on budget. 👍" } : m));
+                        }}
+                      />
+                    )}
+                  </div>
+                </motion.div>
+              );
+
+              if (msg.type === "atecheck") return (
+                <motion.div key={i} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}
+                  style={{ display: "flex", gap: 10, marginBottom: 16, alignItems: "flex-end" }}>
+                  <div style={{ width: 32, height: 32, borderRadius: 10, background: `linear-gradient(135deg, ${T.accent}, ${T.accent2})`, display: "grid", placeItems: "center", fontSize: 15, flexShrink: 0 }}>🍳</div>
+                  <div style={{ maxWidth: "88%" }}>
+                    <div style={{ background: T.panel2, border: `1px solid ${T.line}`, borderRadius: "4px 16px 16px 16px", padding: "12px 16px", fontSize: 13, lineHeight: 1.6, color: T.text }}>
+                      {msg.content}
+                    </div>
+                    {msg.done ? (
+                      <div style={{ marginTop: 6, fontSize: 12.5, color: T.sub, paddingLeft: 4 }}>{msg.doneNote}</div>
+                    ) : (
+                      <AteCheckin
+                        onYes={() => {
+                          markAteDone();
+                          setMessages(prev => prev.map((m, idx) => idx === i ? { ...m, done: true, doneNote: "Logged — stuck to the plan. 💪" } : m));
+                        }}
+                        onElse={(txt) => {
+                          markAteDone();
+                          setMessages(prev => prev.map((m, idx) => idx === i ? { ...m, done: true, doneNote: `Got it — noted you had: ${txt}` } : m));
+                          sendMessage(`For today, log that I actually ate this instead of the plan: ${txt}`);
                         }}
                       />
                     )}
