@@ -151,8 +151,12 @@ export default function App() {
     setMessages(prev => [...prev, userMsg, { role: "assistant", content: "", type: "typing" }]);
 
     try {
+      // Only send messages with real string content. Card messages (meal plans)
+      // have no text content, and a failed response can be empty — including either
+      // would POST null content, which the backend rejects and breaks ALL later
+      // requests. Filtering here keeps one bad turn from poisoning the conversation.
       const history = [...messages, userMsg]
-        .filter(m => m.type !== "typing")
+        .filter(m => typeof m.content === "string" && m.content.trim())
         .map(m => ({ role: m.role, content: m.content }));
 
       const res = await fetch(`${API_URL}/api/chat`, {
@@ -181,7 +185,8 @@ export default function App() {
         }]);
         setActiveTab("shop");
       } else {
-        setMessages(prev => [...prev, { role: "assistant", type: "text", content: data.response }]);
+        setMessages(prev => [...prev, { role: "assistant", type: "text",
+          content: data.response || "Hmm, that one didn't go through on my end. Mind trying again?" }]);
       }
       await loadData();
     } catch (e) {

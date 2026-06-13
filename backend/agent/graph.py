@@ -846,12 +846,21 @@ Do not change any meal. Do not show Lunch and Dinner separately."""
                 chat_messages.append(AIMessage(content=m.get("content", "")))
 
     for _ in range(10):  # up to 10 tool calls -- needed for logging 7 days of meals
-        response = llm_with_tools.invoke(chat_messages)
+        # The small model can emit malformed tool calls (esp. the email tool with
+        # large string args). Don't let that 500 the whole request and break the chat.
+        try:
+            response = llm_with_tools.invoke(chat_messages)
+        except Exception as e:
+            print("LLM INVOKE ERROR:", str(e))
+            break
         chat_messages.append(response)
         if not response.tool_calls:
             break
         for tc in response.tool_calls:
-            result = await execute_tool(tc["name"], tc.get("args", {}))
+            try:
+                result = await execute_tool(tc["name"], tc.get("args", {}))
+            except Exception as e:
+                result = json.dumps({"error": str(e)})
             chat_messages.append(ToolMessage(content=result, tool_call_id=tc["id"]))
 
     final = ""
@@ -859,5 +868,8 @@ Do not change any meal. Do not show Lunch and Dinner separately."""
         if isinstance(msg, AIMessage) and msg.content:
             final = msg.content
             break
+
+    if not final:
+        final = "I hit a snag finishing that one — could you try again?"
 
     return {"response": final.strip() + variety_nudge, "shopping_list": shopping_list, "meal_plan": meal_plan_out}
