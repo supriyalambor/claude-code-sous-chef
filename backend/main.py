@@ -37,6 +37,8 @@ class ChatResponse(BaseModel):
     response: str
     shopping_list: Optional[list] = None
     meal_plan: Optional[dict] = None
+    bill_amount: Optional[float] = None
+    bill_platform: Optional[str] = None
 
 @app.post("/api/chat", response_model=ChatResponse)
 async def chat(request: ChatRequest):
@@ -54,13 +56,32 @@ async def chat(request: ChatRequest):
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/api/scan-bill", response_model=ChatResponse)
-async def scan_bill(image: UploadFile = File(...)):
+async def scan_bill(images: List[UploadFile] = File(...)):
     try:
-        contents = await image.read()
-        image_b64 = base64.b64encode(contents).decode()
-        image_type = image.content_type or "image/jpeg"
-        result = await run_vision_agent(image_b64, image_type)
-        return ChatResponse(**result)
+        results = []
+        for image in images:
+            contents = await image.read()
+            image_b64 = base64.b64encode(contents).decode()
+            image_type = image.content_type or "image/jpeg"
+            result = await run_vision_agent(image_b64, image_type)
+            results.append(result)
+
+        total = sum(r.get("bill_amount", 0) or 0 for r in results)
+        failed = sum(1 for r in results if not r.get("bill_amount"))
+        platform = next((r["bill_platform"] for r in results if r.get("bill_platform")), "")
+        n = len(images)
+
+        if n == 1:
+            return ChatResponse(**results[0])
+
+        if failed == n:
+            msg = "Couldn't read any of those photos — try clearer, well-lit shots!"
+        else:
+            scanned = n - failed
+            note = f" ({failed} photo{'s' if failed > 1 else ''} unreadable)" if failed else ""
+            msg = f"Scanned {scanned}/{n} photos — logged ₹{total:,.0f} total{note}. Added to this month's spend ✅"
+
+        return ChatResponse(response=msg, bill_amount=total, bill_platform=platform)
     except Exception as e:
         import traceback
         print("SCAN BILL ERROR:", str(e))

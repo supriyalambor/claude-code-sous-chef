@@ -294,15 +294,17 @@ export default function App() {
     setLoading(false);
   }
 
-  async function scanBill(file) {
-    if (!file || loading) return;
+  async function scanBill(files) {
+    const fileList = Array.from(files);
+    if (!fileList.length || loading) return;
     setLoading(true);
     setActiveTab("chat");
-    const userMsg = { role: "user", content: `📷 Scanning bill: ${file.name}`, type: "text" };
+    const n = fileList.length;
+    const userMsg = { role: "user", content: `📷 Scanning bill${n > 1 ? ` (${n} photos)` : ""}`, type: "text" };
     setMessages(prev => [...prev, userMsg, { role: "assistant", content: "", type: "typing" }]);
     try {
       const form = new FormData();
-      form.append("image", file);
+      fileList.forEach(f => form.append("images", f));
       const res = await fetch(`${API_URL}/api/scan-bill`, { method: "POST", body: form });
       const data = await res.json();
       setMessages(prev => prev.filter(m => m.type !== "typing"));
@@ -310,7 +312,7 @@ export default function App() {
       await loadData();
     } catch {
       setMessages(prev => [...prev.filter(m => m.type !== "typing"), {
-        role: "assistant", type: "text", content: "Couldn't scan that bill. Try again!",
+        role: "assistant", type: "text", content: "Couldn't scan the bill. Try again!",
       }]);
     }
     setLoading(false);
@@ -610,8 +612,8 @@ export default function App() {
                 style={{ flex: 1, background: "transparent", border: "none", color: listening ? T.danger : T.text, fontSize: 14, fontFamily: "'Inter',sans-serif", outline: "none" }}
               />
               {/* Hidden file input for bill scanning */}
-              <input ref={fileInputRef} type="file" accept="image/*" capture="environment" style={{ display: "none" }}
-                onChange={e => { if (e.target.files[0]) scanBill(e.target.files[0]); e.target.value = ""; }} />
+              <input ref={fileInputRef} type="file" accept="image/*" multiple style={{ display: "none" }}
+                onChange={e => { if (e.target.files?.length) scanBill(e.target.files); e.target.value = ""; }} />
               <button onClick={() => fileInputRef.current?.click()} disabled={loading} title="Scan a grocery bill"
                 style={{ width: 36, height: 36, borderRadius: "50%", border: "none", cursor: loading ? "default" : "pointer", background: T.panel2, display: "grid", placeItems: "center", fontSize: 16, flexShrink: 0 }}>
                 📷

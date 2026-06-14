@@ -913,6 +913,7 @@ async def run_vision_agent(image_base64: str, image_type: str = "image/jpeg") ->
         return {
             "response": "Couldn't read that bill — try a clearer, well-lit photo!",
             "shopping_list": None, "meal_plan": None,
+            "bill_amount": None, "bill_platform": None,
         }
 
     platform = data.get("platform", "mango").lower()
@@ -930,4 +931,6 @@ async def run_vision_agent(image_base64: str, image_type: str = "image/jpeg") ->
         ),
         "shopping_list": None,
         "meal_plan": None,
+        "bill_amount": amount,
+        "bill_platform": platform,
     }
