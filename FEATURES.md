@@ -1,98 +1,127 @@
 # Sous Chef — Feature Lineup
 
-This is the backlog the build routine works through. See `VISION.md` for the why.
-
-## How this works
-- Add features as unchecked items (`- [ ]`) under the right phase.
-- Each run: the routine picks the **topmost unchecked item**, implements it on a branch,
-  runs `backend/test_sous_chef.py` (if backend touched), and opens a PR. It does **not**
-  push to `main` directly.
-- When a PR merges, check the item off (`- [x]`) and note the PR number.
-- Keep each item **self-contained**: file paths + acceptance criteria, no outside context.
+Backlog for the daily build routine. See `VISION.md` for the why.
 
 ## Conventions
 - Backend meal logic lives in Python (`backend/agent/graph.py`), not the LLM.
-- UI direction: agent-first, sleek-health (see `frontend/src/preview/MealPlanPreview.jsx`).
+- UI direction: agent-first, sleek-health dark theme.
 - Health features **suggest, never diagnose**.
+- All changes go to `claude-code-sous-chef` only.
 
 ---
 
-## Phase 1 — Extend what exists (no auth needed)
+## ✅ Shipped
 
-- [x] **Roll the agent UI into the live app.** Sleek-health agent UI + rings card now
-  live in `frontend/src/App.jsx`, wired to real endpoints, voice kept. (Shipped.)
-
-- [ ] **Accept → grocery gate.** Generating a plan should not auto-build groceries;
-  the grocery list is triggered only when the user taps Accept. Add an `accepted`
-  state on `meal_plans` and an explicit accept action. Acceptance: a plan can exist
-  un-accepted; grocery list appears only after accept.
-
-- [ ] **Spend categories.** Extend `expenses` with a `category` column (`grocery`,
-  `toiletries`, `cleaning`, `health`, `other`) and add category chips to the daily
-  check-in + Spend UI. (Daily spend check-in itself is shipped; categories pending.)
-
-- [ ] **Spend insights.** Monthly breakdown by category with the existing budget
-  projection (₹38,000 target). Simple bars/rings in the Spend view.
-
-## Phase 2 — Accounts (prerequisite for health/personal data)
-
-- [ ] **Supabase Auth (Google login).** Add sign-in; gate the app behind a session.
-- [ ] **Multi-household data model.** Add `household_id` to `meal_plans`, `expenses`,
-  `pantry_inventory`, `preferences`; filter every query by the signed-in household.
-  (Today queries are unscoped — see `api/*.py` and `graph.py`.)
-- [ ] **Onboarding.** Capture members (age/sex/weight/height/goal), weekly budget,
-  veg/non-veg, region. Replace hardcoded targets/rules with per-household profile.
-
-## Phase 3 — Adaptive nutrition (needs Phase 2 + input decisions)
-
-- [ ] **DECISION: calorie-burn source.** Manual entry vs wearable (Apple Health /
-  Google Fit / Fitbit). Blocks the rest of this phase.
-- [ ] **DECISION: "what I actually ate" source.** Confirm planned meal vs log
-  deviations.
-- [ ] **Daily nutrition target engine.** From intake + calories burned, compute
-  "eat ~X kcal / Y g protein today."
-- [ ] **Feed targets back into meal generation.** `plan_week()` consumes the daily
-  target so meals respond to the day instead of being fixed.
-
-## Phase 4 — Preventive health (longest horizon)
-
-- [ ] **Pattern tracking.** Aggregate eating/spend/activity trends over weeks/months.
-- [ ] **Blood-test suggestions.** From patterns, suggest monthly/quarterly tests,
-  framed as "discuss with your doctor." Must not diagnose.
-
-## Phase 1.5 — The "agent that works for me" (data-driven autonomy)
-
-The vision in the user's words: an agent that reminds them, logs their data, scans
-bills to learn prices, recommends monthly groceries from real usage, detects habit
-changes, and checks daily whether they actually ate the plan.
-
-- [x] **Proactive daily spend check-in** — agent asks "spend anything today?" once a
-  day with inline logging. (Shipped.)
-- [x] **Daily meal-adherence check** — agent asks "did you eat the plan, or switch it
-  up?" and logs the actual meal. (Shipped.)
-- [ ] **Receipt / bill scanning (OCR)** — user photographs a grocery bill; the agent
-  extracts line items + prices and stores them. *Needs a vision-capable model (the
-  current Groq llama-3.1-8b is text-only) — decision required on model/service.*
-- [ ] **Price intelligence store** — a `prices` table (item, price, source, date) fed
-  by scanned bills + manual entry, so cost estimates use real recent prices instead of
-  the hardcoded Mango list. Shopping-list totals read from here.
-- [ ] **Monthly grocery recommendation** — from logged consumption (pantry usage +
-  purchases + adherence), predict and propose the month's staples and quantities.
-- [ ] **Habit-change detection** — track eating/spending time-series; surface shifts
-  ("you've had chicken 5×/week lately, up from 3", "grocery spend trending +15%").
-- [ ] **Smart reminders** — proactive nudges beyond app-open: "weekly shop due in 2
-  days", "₹2k left in budget", "you're low on atta". Needs a delivery channel (daily
-  cron + email/push, building on the existing Friday cron).
-- [ ] **Real macros** — compute actual kcal/protein per meal for both people so the
-  rings reflect reality, not fixed targets.
-
-## Open decisions (block dependent features)
-- **Calorie-burn source** for adaptive nutrition: manual entry vs wearable.
-- **Vision model** for bill scanning: which multimodal model/service.
-- **Auth/accounts**: needed before per-person health data is meaningful.
+- [x] Agent UI with sleek-health design, rings card, framer-motion animations
+- [x] Weekly meal plan generation (Python logic, not LLM)
+- [x] Daily spend check-in — agent asks once a day, inline logging
+- [x] Daily meal-adherence check — "did you eat the plan?"
+- [x] Bill scanning — 📷 button, multi-image, Groq vision (llama-4-scout)
+- [x] Voice input (🎤 hold to speak)
+- [x] Shopping list with platform grouping (Licious / Instamart / Blinkit / Mango)
+- [x] Expense tracker with budget ring and projected spend
+- [x] Weekly email to Supriya + Vivek every Friday
 
 ---
 
-## Done
-- [x] Proactive daily spend check-in (chat-initiated, inline logging)
-- [x] Daily meal-adherence check (logs actual vs planned)
+## Phase 1 — Polish what exists (no auth needed)
+
+- [ ] **Accept → grocery gate.** Plan appears in chat with an "Accept this week"
+  button. Shopping list only revealed after Accept — not auto-shown.
+  Files: `frontend/src/App.jsx` (meal_plan message type + Accept button),
+  `backend/agent/graph.py` (gate shopping_list in meal_plan object).
+
+- [ ] **Spend categories.** Add `category` column to `expenses` table
+  (`grocery`, `toiletries`, `cleaning`, `health`, `other`). Show category
+  chips in daily check-in and Spend tab.
+
+- [ ] **Spend insights.** Monthly bar chart by category in the Spend view.
+  Show which category is eating the budget ("Groceries 68%, Toiletries 14%…").
+
+- [ ] **PWA polish.** Update `manifest.json` with correct icon, name, theme
+  colour. Add offline splash. Lets Supriya add it to iPhone home screen from
+  Safari with a polished look (free, no App Store needed right now).
+
+- [ ] **Real macros.** Compute actual kcal + protein per meal from an
+  ingredient table. Rings show real numbers, not fixed 1700/130g targets.
+
+---
+
+## Phase 1.5 — Agent autonomy (data-driven, no auth needed)
+
+- [ ] **Price intelligence store.** `prices` table (item, price, store, date)
+  fed by bill scans. Shopping-list cost estimates read from here instead of
+  hardcoded values. Agent learns "eggs are ₹160/doz now, not ₹139."
+
+- [ ] **Monthly grocery recommendation.** From pantry usage + bill scans +
+  meal adherence logs, predict and propose next month's staples + quantities.
+  "You go through ~3kg chicken/week — add 12kg to your monthly order."
+
+- [ ] **Habit-change detection.** Surface shifts in eating/spending patterns.
+  "You've had chicken 5×/week lately, up from 3." "Grocery spend up 15% vs
+  last month." Shown as a weekly insight card in chat.
+
+- [ ] **Smart reminders via email.** Proactive nudges beyond app-open:
+  "weekly shop due in 2 days", "₹3k left in budget", "you're low on atta."
+  Piggyback on the existing Friday cron + Resend email.
+
+---
+
+## Phase 2 — Accounts + security (prerequisite for multi-household)
+
+- [ ] **Google login via Supabase Auth.** Add sign-in page; gate the entire
+  app behind a session. Free up to 50,000 users on Supabase free tier.
+
+- [ ] **Multi-household data model.** Add `household_id` to `meal_plans`,
+  `expenses`, `pantry_inventory`, `preferences`. Filter every query by the
+  signed-in household. Today all queries are unscoped.
+
+- [ ] **Onboarding flow.** After first login, capture: members (name, age,
+  sex, weight, height, goal), weekly grocery budget, veg/non-veg preference,
+  region (affects fish availability, monsoon rules). Replace hardcoded
+  Supriya/Vivek targets with per-household profile.
+
+- [ ] **Multi-member profiles.** Each household member gets their own
+  calorie + protein target. Meal plan generates portions for all members.
+  ("Supriya: 1700 kcal / Vivek: 2200 kcal / add a third member.")
+
+---
+
+## Phase 3 — House management (beyond meals)
+
+- [ ] **Utility bill tracking.** Log electricity, water, internet, gas bills
+  separately from grocery spend. Monthly view shows household running cost.
+
+- [ ] **Home maintenance reminders.** Track recurring tasks: AC service
+  (every 3 months), pest control, water purifier filter, society dues.
+  Agent nudges you when one is due.
+
+- [ ] **Shared task / chore list.** Simple weekly chore assignment between
+  household members. Agent checks in: "Vivek, did you pay the electricity
+  bill this week?"
+
+---
+
+## Phase 4 — Adaptive nutrition (needs Phase 2 + decisions)
+
+- [ ] **DECISION: calorie-burn source.** Manual entry vs Apple Health /
+  Google Fit / Fitbit integration. Blocks this whole phase.
+- [ ] **Daily nutrition target engine.** Intake + calories burned →
+  "eat ~X kcal / Y g protein today." Adjusts if you skipped the gym.
+- [ ] **Adaptive meal generation.** `plan_week()` consumes the daily target
+  so meals respond to actual activity, not fixed weekly template.
+
+---
+
+## Phase 5 — Preventive health (longest horizon)
+
+- [ ] **Pattern tracking.** Aggregate eating, spend, activity over months.
+- [ ] **Blood-test suggestions.** From patterns, suggest tests framed as
+  "worth discussing with your doctor." Never diagnose.
+
+---
+
+## Open decisions
+- **Calorie-burn source** — manual vs wearable (blocks Phase 4)
+- **App Store** — PWA on iPhone home screen for now; Play Store ($25) when
+  ready to go public; Apple App Store ($99/yr) when scaling
