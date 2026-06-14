@@ -360,7 +360,13 @@ TOOL SEQUENCE — follow exactly when user asks for a meal plan:
 
 History and preferences are already loaded — do NOT call get_meal_history or get_preferences.
 NEVER generate a meal from memory. ALWAYS call plan_week first.
-NEVER show a shopping list without calling generate_shopping_list first."""
+NEVER show a shopping list without calling generate_shopping_list first.
+
+MONDAY VEG CHECK: After calling plan_week, if the result has "suggest_monday_veg": true,
+ask the user BEFORE presenting the plan:
+"You've had non-veg the last few days — want me to swap Monday to veg for a break? 🥦"
+If they say yes → call plan_week again with force_monday_veg=true, then present the updated plan.
+If they say no → present the original plan as-is."""
 
 TOOLS = [
     {"type": "function", "function": {
@@ -455,7 +461,8 @@ TOOLS = [
             "properties": {
                 "history": {"type": "array", "items": {"type": "object"}, "description": "Past meals from get_meal_history"},
                 "avoid": {"type": "array", "items": {"type": "string"}, "description": "Foods to avoid from get_preferences"},
-                "replace": {"type": "object", "description": "Replacements from get_preferences e.g. {\"moong dal\": \"chana dal\"}"}
+                "replace": {"type": "object", "description": "Replacements from get_preferences e.g. {\"moong dal\": \"chana dal\"}"},
+                "force_monday_veg": {"type": "boolean", "description": "If true, override Monday to veg regardless of the default schedule. Use when user confirms they want a veg Monday after a non-veg weekend."}
             },
             "required": []
         }
@@ -676,9 +683,36 @@ async def execute_tool(name: str, args: dict) -> str:
             history = args.get("history", []) or _session_state.get("history", [])
             avoid = args.get("avoid", [])
             replace = args.get("replace", {})
+            force_monday_veg = args.get("force_monday_veg", False)
             if not history:
                 history = await get_history()
             week = plan_week(history, avoid=avoid, replace=replace)
+
+            # Detect non-veg weekend streak → suggest veg Monday
+            _NV = {"chicken", "mackerel", "sardine", "sea bass", "pepper chicken",
+                   "chicken sukka", "chicken handi", "chicken masala"}
+            recent_nv = [any(w in h.get("meal", "").lower() for w in _NV) for h in history[-4:]]
+            monday_is_nonveg = bool(week) and week[0]["day_type"] in ("chicken", "fish")
+            suggest_monday_veg = sum(recent_nv) >= 3 and monday_is_nonveg and not force_monday_veg
+
+            # Override Monday to veg if requested
+            if force_monday_veg and week and week[0].get("day") == "Monday" and week[0]["day_type"] != "veg":
+                import random as _rnd
+                _VEG_PARATHA = {"chole","matar paneer","palak paneer","chana masala","aloo gobi gravy","paneer handi"}
+                _HAS_PROTEIN  = {"matar paneer","palak paneer","paneer handi"}
+                _NEEDS_BHURJI = {"chole","aloo gobi gravy","rajma soyabean","rajma","black chana","chana masala"}
+                used_g = {d.get("gravy","") for d in week[1:]}
+                g_pool = [g for g in GRAVIES["veg"] if g not in used_g and g not in avoid] or GRAVIES["veg"]
+                gravy  = _rnd.choice(g_pool)
+                used_s = {d.get("sabzi","") for d in week[1:]}
+                s_pool = [s for s in SABZIS if s not in used_s] or SABZIS
+                sabzi  = _rnd.choice(s_pool)
+                starch = "3 Plain Parathas (Supriya) / 4 Rotis (Vivek)" if gravy in _VEG_PARATHA else "Rice"
+                protein = "" if gravy in _HAS_PROTEIN else "Paneer Bhurji"
+                meal = f"{gravy.title()} + {sabzi.title()} + {protein + ' + ' if protein else ''}{starch}"
+                week[0] = {**week[0], "day_type": "veg", "gravy": gravy, "sabzi": sabzi,
+                           "protein": protein.lower(), "lunch": meal, "dinner": meal}
+
             await save_plan(week)
             _session_state["plan"] = week
 
@@ -720,6 +754,7 @@ async def execute_tool(name: str, args: dict) -> str:
                 "variety_nudge": variety_nudge,
                 "meal_plan_ui": meal_plan_ui,
                 "days_count": len(week),
+                "suggest_monday_veg": suggest_monday_veg,
             })
 
         elif name == "generate_shopping_list":
