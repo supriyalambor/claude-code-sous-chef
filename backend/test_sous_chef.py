@@ -84,14 +84,14 @@ for check, label in [('get_preferences','fetches preferences'),('get_pantry','fe
     if check in rwa: ok(f"run_weekly_agent: {label}")
     else: fail(f"run_weekly_agent: {label} MISSING")
 
-# 0.8 run_agent passes preferences and pantry
+# 0.8 run_agent is a proper tool-calling agent (no keyword matching)
 ra = code[code.find('async def run_agent'):]
-for check, label in [('get_preferences','reads prefs before planning'),
-                      ('get_pantry','reads pantry'),
-                      ('wants_plan','wants_plan trigger'),
-                      ('wants_today','wants_today trigger'),
-                      ('wants_shopping','wants_shopping trigger'),
-                      ('shopping_list','returns shopping_list')]:
+for check, label in [('tool_calls','tool-calling agent loop'),
+                      ('ToolMessage','feeds tool results back to LLM'),
+                      ('shopping_list_out','captures shopping list from tools'),
+                      ('meal_plan_out','captures meal plan from tools'),
+                      ('llm_with_tools','uses tool-bound LLM'),
+                      ('shopping_list','returns shopping_list in response')]:
     if check in ra: ok(f"run_agent: {label}")
     else: fail(f"run_agent: {label} MISSING")
 
@@ -432,7 +432,7 @@ checks = {
     "in_stock column":          '"in_stock"' in code,
     "No old instock col":       '"instock"' not in code,
     "No hardcoded Groq key":    "gsk_" not in code,
-    "Model llama-3.1-8b":       "llama-3.1-8b-instant" in code,
+    "Model llama-3.3-70b":       "llama-3.3-70b-versatile" in code,
     "plan_week exists":         "def plan_week" in code,
     "get_history exists":       "def get_history" in code,
     "save_plan exists":         "def save_plan" in code,
@@ -444,8 +444,8 @@ checks = {
     "Khichdi is_veg False":     '"veg", "khichdi"' not in code,
     "Platform lowercase":       ".lower()" in code,
     "Lunch & Dinner once":      "Lunch & Dinner" in code,
-    "Force exact plan":         "MEAL PLAN GENERATED" in code,
-    "LLM not replanning":       "Present the meal plan above exactly" in code,
+    "plan_week tool exposed":   '"plan_week"' in code,
+    "agent loop 15 steps":      "for _ in range(15)" in code,
     "RESEND_API_KEY used":      "RESEND_API_KEY" in code,
     "Preferences table used":   "preferences" in code,
     "Monsoon detection":        "MONSOON_MONTHS" in code,

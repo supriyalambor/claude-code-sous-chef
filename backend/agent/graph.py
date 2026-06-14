@@ -9,10 +9,10 @@ import random
 from datetime import datetime, timedelta
 
 llm = ChatGroq(
-    model="llama-3.1-8b-instant",
+    model="llama-3.3-70b-versatile",
     groq_api_key=os.getenv("GROQ_API_KEY"),
     temperature=0.3,
-    max_tokens=800,
+    max_tokens=1200,
 )
 
 def sb_headers():
@@ -350,7 +350,18 @@ When user says they had something last week, or lists past meals, or says "log o
 When user says "I don't like X" or "replace X with Y" → call save_preference() immediately.
 When user says "I have X at home" or "I ran out of X" → call update_pantry() immediately.
 When generating shopping list → ALWAYS call get_pantry first, then remove in-stock items.
-Keep responses warm and SHORT. Only show macros/quantities if asked."""
+Keep responses warm and SHORT. Only show macros/quantities if asked.
+
+TOOL SEQUENCE — follow exactly when user asks for a meal plan:
+  1. call get_meal_history — fetch past 2 weeks, avoid repeating meals
+  2. call get_preferences — get avoid/replace rules
+  3. call plan_week — pass history + avoid + replace from steps above
+  4. call get_pantry — check what is already at home
+  5. call generate_shopping_list — pass in_stock from pantry
+  6. present the plan EXACTLY as returned by plan_week — do NOT invent or change any meal
+
+NEVER generate a meal from memory. ALWAYS call plan_week first.
+NEVER show a shopping list without calling generate_shopping_list first."""
 
 TOOLS = [
     {"type": "function", "function": {
@@ -431,10 +442,42 @@ TOOLS = [
             },
             "required": ["platform", "amount"]
         }
+    }},
+    {"type": "function", "function": {
+        "name": "get_meal_history",
+        "description": "Fetch past 2 weeks of meals eaten. Call this BEFORE plan_week to avoid repeating dishes.",
+        "parameters": {"type": "object", "properties": {}, "required": []}
+    }},
+    {"type": "function", "function": {
+        "name": "plan_week",
+        "description": "Generate a 7-day Indian meal plan. Pass history from get_meal_history and preferences from get_preferences. Returns the full plan — present it exactly as given.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "history": {"type": "array", "items": {"type": "object"}, "description": "Past meals from get_meal_history"},
+                "avoid": {"type": "array", "items": {"type": "string"}, "description": "Foods to avoid from get_preferences"},
+                "replace": {"type": "object", "description": "Replacements from get_preferences e.g. {\"moong dal\": \"chana dal\"}"}
+            },
+            "required": []
+        }
+    }},
+    {"type": "function", "function": {
+        "name": "generate_shopping_list",
+        "description": "Generate a shopping list for the current week plan. Call get_pantry first, pass in_stock items here.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "in_stock": {"type": "array", "items": {"type": "string"}, "description": "Items already at home from get_pantry"}
+            },
+            "required": []
+        }
     }}
 ]
 
 llm_with_tools = llm.bind_tools(TOOLS)
+
+# Shared session state — stores current week plan so generate_shopping_list can use it
+_session_state: dict = {"plan": []}
 
 # Vision LLM — used only for bill scanning (image-capable model)
 vision_llm = ChatGroq(
@@ -625,6 +668,69 @@ async def execute_tool(name: str, args: dict) -> str:
                     json={"platform": platform, "amount": amount,
                           "note": args.get("note",""), "expense_date": datetime.now().strftime("%Y-%m-%d")})
             return json.dumps({"success": True})
+
+        elif name == "get_meal_history":
+            history = await get_history()
+            return json.dumps({"history": history})
+
+        elif name == "plan_week":
+            history = args.get("history", [])
+            avoid = args.get("avoid", [])
+            replace = args.get("replace", {})
+            if not history:
+                history = await get_history()
+            week = plan_week(history, avoid=avoid, replace=replace)
+            await save_plan(week)
+            _session_state["plan"] = week
+
+            # Variety nudge for consecutive chicken days
+            variety_nudge = ""
+            longest, current = [], []
+            for d in week:
+                if d["day_type"] == "chicken":
+                    current.append(d["day"])
+                    if len(current) > len(longest):
+                        longest = current[:]
+                else:
+                    current = []
+            if len(longest) >= 2:
+                days_str = ", ".join(longest[:-1]) + " & " + longest[-1]
+                variety_nudge = (f"{len(longest)} chicken days in a row ({days_str}). "
+                                 f"Say the word and I'll swap one for fish or veg.")
+
+            def fmt(dt):
+                return {"chicken":"Chicken","fish":"Fish","veg":"Veg",
+                        "khichdi":"Khichdi Special","flex":"Flexible"}.get(dt, dt)
+            plan_text = "\n".join(
+                f"{d['day']} ({fmt(d['day_type'])}): {d['lunch']}" for d in week
+            )
+
+            real_prices = await get_real_prices()
+            shopping = generate_shopping_list(week, real_prices=real_prices)
+            weekly_total = sum(int(i.get("estimatedPrice", 0) or 0) for i in shopping)
+            meal_plan_ui = {
+                "days": [{"day": d["day"], "day_type": d["day_type"], "meal": d["lunch"]} for d in week],
+                "kcal_target": 1700,
+                "protein_target": 130,
+                "weekly_total": weekly_total,
+                "weekly_budget": 9500,
+                "nudge": variety_nudge.strip(),
+            }
+            return json.dumps({
+                "plan_text": plan_text,
+                "variety_nudge": variety_nudge,
+                "meal_plan_ui": meal_plan_ui,
+                "days_count": len(week),
+            })
+
+        elif name == "generate_shopping_list":
+            in_stock = args.get("in_stock", [])
+            week = _session_state["plan"]
+            real_prices = await get_real_prices()
+            items = generate_shopping_list(week, in_stock=in_stock, real_prices=real_prices)
+            total = sum(int(i.get("estimatedPrice", 0) or 0) for i in items)
+            return json.dumps({"items": items, "weekly_total": total})
+
     except Exception as e:
         return json.dumps({"error": str(e)})
 
@@ -795,124 +901,22 @@ async def run_weekly_agent() -> dict:
     return {"success": True, "plan": plan_text, "email_result": json.loads(email_result)}
 
 async def run_agent(messages: list) -> dict:
+    """Proper tool-calling agent. The LLM decides which tools to call — no keyword matching."""
     now = datetime.now()
-    user_message = messages[-1].get("content", "").lower() if messages else ""
-
-    # Check if user wants a week plan or today's plan
-    wants_plan = any(w in user_message for w in ["plan my week", "plan week", "plan next week", "weekly menu", "plan meals", "meal plan", "mon to sun", "monday to sunday"])
-    # Never treat past-meal logging as a plan request
-    is_logging_meals = any(w in user_message for w in ["last week", "that was", "we had", "i had", "i ate", "we ate", "log our", "log my", "log meals"])
-    if is_logging_meals:
-        wants_plan = False
-    wants_today = (
-        any(w in user_message for w in ["plan today", "today's meal", "what should i eat today", "today's plan", "plan for today"])
-        and not any(w in user_message for w in ["week", "mon", "monday"])
-    )
-
-    wants_shopping = any(w in user_message for w in ["shopping list", "shopping", "groceries", "what to buy", "grocery list"])
-
-    meal_plan_context = ""
-    week_plan = None
-    shopping_list = None
-    variety_nudge = ""
-    meal_plan_out = None
-
-    if wants_plan or wants_today:
-        history = await get_history()
-        prefs_raw = await execute_tool("get_preferences", {})
-        prefs = json.loads(prefs_raw)
-        week_plan = plan_week(history, avoid=prefs.get("avoid",[]), replace=prefs.get("replace",{}))
-
-        # Proactively notice back-to-back chicken and offer to mix it up.
-        # Only for full-week plans (a single day can't be "back to back").
-        if wants_plan:
-            longest, current = [], []
-            for d in week_plan:
-                if d["day_type"] == "chicken":
-                    current.append(d["day"])
-                    if len(current) > len(longest):
-                        longest = current[:]
-                else:
-                    current = []
-            if len(longest) >= 2:
-                days_str = ", ".join(longest[:-1]) + " & " + longest[-1]
-                variety_nudge = (
-                    f"\n\nHeads up — that's chicken {len(longest)} days running ({days_str}). "
-                    f"I've varied the style (gravy vs dry/pepper) so it's not identical, but if you're "
-                    f"bored of chicken just say the word and I'll swap a day for fish or veg. \U0001f413"
-                )
-        if wants_today:
-            # Plan for TODAY — find today's index in the generated week plan
-            # plan_week generates Mon-Sun starting next Monday
-            # Today's day of week maps to index 0-6
-            today_weekday = now.weekday()  # 0=Mon...6=Sun
-            # Take the day from the plan that matches today's weekday position
-            if today_weekday < len(week_plan):
-                today_entry = week_plan[today_weekday].copy()
-            else:
-                today_entry = week_plan[0].copy()
-            today_entry["date"] = now.strftime("%Y-%m-%d")
-            today_entry["day"] = now.strftime("%A")
-            week_plan = [today_entry]
-        await save_plan(week_plan)
-        pantry_raw = await execute_tool("get_pantry", {})
-        pantry = json.loads(pantry_raw)
-        real_prices = await get_real_prices()
-        shopping_list = generate_shopping_list(week_plan, in_stock=pantry.get("in_stock", []), real_prices=real_prices)
-
-        # Structured plan for the UI to render as cards + rings (text stays for chat).
-        weekly_total = sum(int(i.get("estimatedPrice", i.get("estimated_price", 0)) or 0)
-                           for i in shopping_list)
-        meal_plan_out = {
-            "days": [{"day": d["day"], "day_type": d["day_type"], "meal": d["lunch"]}
-                     for d in week_plan],
-            "kcal_target": 1700,        # Supriya's daily target (plan is built to it)
-            "protein_target": 130,      # g/day
-            "weekly_total": weekly_total,
-            "weekly_budget": 9500,      # ~₹38,000 monthly / 4 weeks
-            "nudge": variety_nudge.strip(),
-        }
-        def format_day_type(dt):
-            labels = {"chicken": "Chicken", "fish": "Fish", "veg": "Veg",
-                     "khichdi": "Khichdi Special", "flex": "Flexible"}
-            return labels.get(dt, dt.title())
-        plan_text = "\n".join([
-            f"{d['day']} ({format_day_type(d['day_type'])}): {d['lunch']}"
-            for d in week_plan
-        ])
-        meal_plan_context = f"""
-
-MEAL PLAN GENERATED BY PYTHON -- CRITICAL: Present EXACTLY what is below. Do NOT use any meals from conversation history. Do NOT repeat last week's meals. This is a NEW plan:
-{plan_text}
-
-Format EXACTLY like this for each day:
-[Day] -- [Chicken/Veg/Fish/Khichdi Special]
-BF: Egg whites + smoothie
-Lunch & Dinner: [exact meal from above]
-
-Do not change any meal. Do not show Lunch and Dinner separately."""
 
     chat_messages = [SystemMessage(content=SYSTEM)]
-    chat_messages.append(HumanMessage(content=
-        f"[Today: {now.strftime('%A %d %B %Y')} | Day {now.day}/31]{meal_plan_context}"
-    ))
+    chat_messages.append(HumanMessage(content=f"[Today: {now.strftime('%A %d %B %Y')} | Day {now.day}/31]"))
 
-    if wants_plan or wants_today:
-        # Send ONLY system + plan context — no conversation history
-        # History contains last week's meals which LLM repeats instead of using Python plan
-        chat_messages.append(HumanMessage(content=
-            "Present the meal plan above exactly as formatted. Do not use any meals from memory."
-        ))
-    else:
-        for m in messages[-4:]:
-            if m.get("role") == "user":
-                chat_messages.append(HumanMessage(content=m["content"]))
-            elif m.get("role") == "assistant":
-                chat_messages.append(AIMessage(content=m.get("content", "")))
+    for m in messages[-8:]:
+        if m.get("role") == "user":
+            chat_messages.append(HumanMessage(content=m["content"]))
+        elif m.get("role") == "assistant":
+            chat_messages.append(AIMessage(content=m.get("content", "")))
 
-    for _ in range(10):  # up to 10 tool calls -- needed for logging 7 days of meals
-        # The small model can emit malformed tool calls (esp. the email tool with
-        # large string args). Don't let that 500 the whole request and break the chat.
+    shopping_list_out = None
+    meal_plan_out = None
+
+    for _ in range(15):
         try:
             response = llm_with_tools.invoke(chat_messages)
         except Exception as e:
@@ -924,6 +928,14 @@ Do not change any meal. Do not show Lunch and Dinner separately."""
         for tc in response.tool_calls:
             try:
                 result = await execute_tool(tc["name"], tc.get("args", {}))
+                try:
+                    parsed = json.loads(result)
+                    if tc["name"] == "plan_week" and "meal_plan_ui" in parsed:
+                        meal_plan_out = parsed["meal_plan_ui"]
+                    elif tc["name"] == "generate_shopping_list" and "items" in parsed:
+                        shopping_list_out = parsed["items"]
+                except Exception:
+                    pass
             except Exception as e:
                 result = json.dumps({"error": str(e)})
             chat_messages.append(ToolMessage(content=result, tool_call_id=tc["id"]))
@@ -935,9 +947,9 @@ Do not change any meal. Do not show Lunch and Dinner separately."""
             break
 
     if not final:
-        final = "I hit a snag finishing that one — could you try again?"
+        final = "I hit a snag — could you try again?"
 
-    return {"response": final.strip() + variety_nudge, "shopping_list": shopping_list, "meal_plan": meal_plan_out}
+    return {"response": final.strip(), "shopping_list": shopping_list_out, "meal_plan": meal_plan_out}
 
 # ── run_vision_agent ──────────────────────────────────────────────────────────
 async def run_vision_agent(image_base64: str, image_type: str = "image/jpeg") -> dict:
