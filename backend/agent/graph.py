@@ -352,21 +352,25 @@ When user says "I have X at home" or "I ran out of X" → call update_pantry() i
 When generating shopping list → ALWAYS call get_pantry first, then remove in-stock items.
 Keep responses warm and SHORT. Only show macros/quantities if asked.
 
-TOOL SEQUENCE — follow exactly when user asks for a meal plan:
-  1. call plan_week — pass the avoid list and replace map from PRE-LOADED CONTEXT below
-  2. call get_pantry — check what is already at home
-  3. call generate_shopping_list — pass in_stock from pantry result
-  4. present the plan EXACTLY as returned by plan_week — do NOT invent or change any meal
+MANDATORY TOOL TRIGGERS — call the tool immediately, no text first:
+• "plan my week" / "plan week" / "plan next week" / "meal plan" / "mon to sun" → call plan_week
+• "shopping list" / "groceries" / "what to buy" → call generate_shopping_list (after plan_week if no plan yet)
+• "how much" / "budget" / "spent" → call get_expenses
+• "I spent" / "paid" + amount → call log_expense
+• "I don't like" / "replace X" / "I love X" → call save_preference
+• "I have X at home" / "ran out of X" → call update_pantry
+• "what did I eat" / "log meals" / "we had" → call save_meal (once per day)
 
-History and preferences are already loaded — do NOT call get_meal_history or get_preferences.
-NEVER generate a meal from memory. ALWAYS call plan_week first.
-NEVER show a shopping list without calling generate_shopping_list first.
+PLAN SEQUENCE — when plan_week is triggered:
+  1. call plan_week with avoid and replace from PRE-LOADED CONTEXT
+  2. if result has "suggest_monday_veg":true → ask user "Non-veg weekend — want veg Monday? 🥦"
+     - yes → call plan_week again with force_monday_veg=true
+     - no → proceed with original plan
+  3. call get_pantry
+  4. call generate_shopping_list with in_stock from pantry
+  5. present the plan from plan_week's plan_text — do NOT invent meals
 
-MONDAY VEG CHECK: After calling plan_week, if the result has "suggest_monday_veg": true,
-ask the user BEFORE presenting the plan:
-"You've had non-veg the last few days — want me to swap Monday to veg for a break? 🥦"
-If they say yes → call plan_week again with force_monday_veg=true, then present the updated plan.
-If they say no → present the original plan as-is."""
+History and preferences are already loaded in PRE-LOADED CONTEXT — do NOT call get_meal_history or get_preferences."""
 
 TOOLS = [
     {"type": "function", "function": {
@@ -980,18 +984,34 @@ async def run_agent(messages: list) -> dict:
             break
         for tc in response.tool_calls:
             try:
-                result = await execute_tool(tc["name"], tc.get("args", {}))
+                full_result = await execute_tool(tc["name"], tc.get("args", {}))
                 try:
-                    parsed = json.loads(result)
+                    parsed = json.loads(full_result)
+                    # Capture structured UI data for the frontend
                     if tc["name"] == "plan_week" and "meal_plan_ui" in parsed:
                         meal_plan_out = parsed["meal_plan_ui"]
+                        # Give LLM a short version — not the full nested JSON
+                        llm_result = json.dumps({
+                            "plan_text": parsed.get("plan_text", ""),
+                            "variety_nudge": parsed.get("variety_nudge", ""),
+                            "suggest_monday_veg": parsed.get("suggest_monday_veg", False),
+                            "days_count": parsed.get("days_count", 7),
+                        })
                     elif tc["name"] == "generate_shopping_list" and "items" in parsed:
                         shopping_list_out = parsed["items"]
+                        total = parsed.get("weekly_total", 0)
+                        llm_result = json.dumps({
+                            "weekly_total": total,
+                            "items_count": len(shopping_list_out),
+                            "note": f"Shopping list ready — {len(shopping_list_out)} items, ₹{total:,} total.",
+                        })
+                    else:
+                        llm_result = full_result
                 except Exception:
-                    pass
+                    llm_result = full_result
             except Exception as e:
-                result = json.dumps({"error": str(e)})
-            chat_messages.append(ToolMessage(content=result, tool_call_id=tc["id"]))
+                llm_result = json.dumps({"error": str(e)})
+            chat_messages.append(ToolMessage(content=llm_result, tool_call_id=tc["id"]))
 
     final = ""
     for msg in reversed(chat_messages):
