@@ -3,6 +3,7 @@ from langchain_groq import ChatGroq
 from langchain_core.messages import HumanMessage, SystemMessage, AIMessage, ToolMessage
 import os
 import json
+import re
 import httpx
 import random
 from datetime import datetime, timedelta
@@ -434,6 +435,14 @@ TOOLS = [
 ]
 
 llm_with_tools = llm.bind_tools(TOOLS)
+
+# Vision LLM — used only for bill scanning (image-capable model)
+vision_llm = ChatGroq(
+    model="llama-3.2-11b-vision-preview",
+    groq_api_key=os.getenv("GROQ_API_KEY"),
+    temperature=0.1,
+    max_tokens=400,
+)
 
 async def get_history() -> list:
     since = (datetime.now() - timedelta(days=14)).strftime("%Y-%m-%d")
@@ -873,3 +882,50 @@ Do not change any meal. Do not show Lunch and Dinner separately."""
         final = "I hit a snag finishing that one — could you try again?"
 
     return {"response": final.strip() + variety_nudge, "shopping_list": shopping_list, "meal_plan": meal_plan_out}
+
+# ── run_vision_agent ──────────────────────────────────────────────────────────
+async def run_vision_agent(image_base64: str, image_type: str = "image/jpeg") -> dict:
+    """Scan a grocery bill image, extract total + items, log the expense."""
+    prompt = (
+        "You are scanning an Indian grocery receipt. Extract:\n"
+        "1. Store name — map to one of: licious, instamart, blinkit, mango, or other\n"
+        "2. Total amount paid (number only, no currency symbol)\n"
+        "3. Key items as a short comma-separated list\n\n"
+        "Reply ONLY with valid JSON, no extra text:\n"
+        '{"platform":"instamart","amount":890,"items":"chicken breast x2, eggs 6doz","note":"Instamart grocery"}\n\n'
+        'If the image is unreadable, reply: {"error":"unclear"}'
+    )
+    msg = HumanMessage(content=[
+        {"type": "text", "text": prompt},
+        {"type": "image_url", "image_url": {"url": f"data:{image_type};base64,{image_base64}"}},
+    ])
+    try:
+        resp = vision_llm.invoke([msg])
+        text = resp.content.strip()
+        match = re.search(r'\{.*?\}', text, re.DOTALL)
+        data = json.loads(match.group()) if match else {"error": "no json"}
+    except Exception as exc:
+        data = {"error": str(exc)}
+
+    if "error" in data:
+        return {
+            "response": "Couldn't read that bill — try a clearer, well-lit photo!",
+            "shopping_list": None, "meal_plan": None,
+        }
+
+    platform = data.get("platform", "mango").lower()
+    amount = float(data.get("amount", 0))
+    note = data.get("note") or data.get("items") or "Bill scan"
+    items = data.get("items", "")
+
+    await execute_tool("log_expense", {"platform": platform, "amount": amount, "note": note})
+
+    return {
+        "response": (
+            f"Logged ₹{amount:,.0f} from {platform.title()}.\n\n"
+            f"{items}\n\n"
+            "Added to this month's spend ✅"
+        ),
+        "shopping_list": None,
+        "meal_plan": None,
+    }

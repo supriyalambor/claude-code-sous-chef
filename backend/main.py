@@ -1,10 +1,10 @@
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, File, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import List, Optional
-import os
+import os, base64
 from dotenv import load_dotenv
-from agent.graph import run_agent, run_weekly_agent
+from agent.graph import run_agent, run_weekly_agent, run_vision_agent
 from api.expenses import router as expenses_router
 from api.meals import router as meals_router
 from api.preferences import router as preferences_router
@@ -50,6 +50,20 @@ async def chat(request: ChatRequest):
     except Exception as e:
         import traceback
         print("CHAT ERROR:", str(e))
+        print(traceback.format_exc())
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/scan-bill", response_model=ChatResponse)
+async def scan_bill(image: UploadFile = File(...)):
+    try:
+        contents = await image.read()
+        image_b64 = base64.b64encode(contents).decode()
+        image_type = image.content_type or "image/jpeg"
+        result = await run_vision_agent(image_b64, image_type)
+        return ChatResponse(**result)
+    except Exception as e:
+        import traceback
+        print("SCAN BILL ERROR:", str(e))
         print(traceback.format_exc())
         raise HTTPException(status_code=500, detail=str(e))
 
