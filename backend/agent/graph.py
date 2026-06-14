@@ -438,7 +438,7 @@ llm_with_tools = llm.bind_tools(TOOLS)
 
 # Vision LLM — used only for bill scanning (image-capable model)
 vision_llm = ChatGroq(
-    model="llama-3.2-11b-vision-preview",
+    model="meta-llama/llama-4-scout-17b-16e-instruct",
     groq_api_key=os.getenv("GROQ_API_KEY"),
     temperature=0.1,
     max_tokens=400,
@@ -902,9 +902,11 @@ async def run_vision_agent(image_base64: str, image_type: str = "image/jpeg") ->
     try:
         resp = vision_llm.invoke([msg])
         text = resp.content.strip()
-        match = re.search(r'\{.*?\}', text, re.DOTALL)
+        print("VISION RAW:", text[:300])
+        match = re.search(r'\{[^{}]+\}', text, re.DOTALL)
         data = json.loads(match.group()) if match else {"error": "no json"}
     except Exception as exc:
+        print("VISION ERROR:", str(exc))
         data = {"error": str(exc)}
 
     if "error" in data:
