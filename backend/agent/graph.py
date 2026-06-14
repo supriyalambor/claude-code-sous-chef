@@ -628,54 +628,108 @@ async def execute_tool(name: str, args: dict) -> str:
     except Exception as e:
         return json.dumps({"error": str(e)})
 
-def generate_shopping_list(week_plan: list, in_stock: list = None) -> list:
+def _price_lookup(item_name: str, real_prices: dict) -> int | None:
+    """Return the most recent real price for an item, or None to fall back to hardcoded."""
+    keywords = [w for w in item_name.lower().split() if len(w) > 3]
+    for stored, price in real_prices.items():
+        if any(kw in stored for kw in keywords):
+            return int(price)
+    return None
+
+def generate_shopping_list(week_plan: list, in_stock: list = None, real_prices: dict = None) -> list:
     """Generate structured shopping list from the week plan.
-    Removes items already in pantry (in_stock).
+    Uses real_prices from the prices table when available; falls back to hardcoded.
     """
     in_stock = [i.lower().strip() for i in (in_stock or [])]
-    
+    real_prices = real_prices or {}
+
     def is_in_stock(item_name):
         return any(s in item_name.lower() for s in in_stock)
-    items = []
 
-    # Count protein days
+    def price(item_name, fallback):
+        real = _price_lookup(item_name, real_prices)
+        return real if real is not None else fallback
+
+    items = []
     chicken_days = sum(1 for d in week_plan if d["day_type"] == "chicken")
     fish_days = sum(1 for d in week_plan if d["day_type"] in ("fish", "khichdi"))
     has_paneer = any("paneer" in d.get("gravy","") or "paneer bhurji" in d.get("protein","") for d in week_plan)
 
     # -- Licious --
     if not is_in_stock("eggs"):
-        items.append({"item": "Eggs", "qty": "6 dozen", "platform": "licious", "estimatedPrice": 834})
+        items.append({"item": "Eggs", "qty": "6 dozen", "platform": "licious", "estimatedPrice": price("eggs", 834)})
     if chicken_days > 0 and not is_in_stock("chicken breast"):
-        items.append({"item": "Chicken breast", "qty": f"{chicken_days}×450g", "platform": "licious", "estimatedPrice": chicken_days * 295})
+        items.append({"item": "Chicken breast", "qty": f"{chicken_days}×450g", "platform": "licious",
+                      "estimatedPrice": price("chicken breast", chicken_days * 295)})
     if chicken_days > 0 and not is_in_stock("chicken curry cut"):
-        items.append({"item": "Chicken curry cut", "qty": f"{chicken_days}×500g", "platform": "licious", "estimatedPrice": chicken_days * 260})
+        items.append({"item": "Chicken curry cut", "qty": f"{chicken_days}×500g", "platform": "licious",
+                      "estimatedPrice": price("chicken curry cut", chicken_days * 260)})
     if fish_days > 0 and not is_in_stock("mackerel"):
-        items.append({"item": "Mackerel", "qty": f"{fish_days}×500g", "platform": "licious", "estimatedPrice": fish_days * 350})
+        items.append({"item": "Mackerel", "qty": f"{fish_days}×500g", "platform": "licious",
+                      "estimatedPrice": price("mackerel", fish_days * 350)})
 
     # -- Instamart --
     if has_paneer and not is_in_stock("paneer"):
-        items.append({"item": "Paneer", "qty": "2×200g", "platform": "instamart", "estimatedPrice": 272})
+        items.append({"item": "Paneer", "qty": "2×200g", "platform": "instamart", "estimatedPrice": price("paneer", 272)})
     if not is_in_stock("milk"):
-        items.append({"item": "A2 Milk", "qty": "14×500ml", "platform": "instamart", "estimatedPrice": 742})
+        items.append({"item": "A2 Milk", "qty": "14×500ml", "platform": "instamart", "estimatedPrice": price("milk", 742)})
     if not is_in_stock("yogurt"):
-        items.append({"item": "Epigamia Yogurt", "qty": "2", "platform": "instamart", "estimatedPrice": 498})
+        items.append({"item": "Epigamia Yogurt", "qty": "2", "platform": "instamart", "estimatedPrice": price("yogurt", 498)})
 
     # -- Mango --
     sabzis = [d.get("sabzi","") for d in week_plan if d.get("sabzi") and d.get("sabzi") != "none"]
-    items.append({"item": "Vegetables (week)", "qty": ", ".join(set(sabzis)), "platform": "mango", "estimatedPrice": 350})
+    items.append({"item": "Vegetables (week)", "qty": ", ".join(set(sabzis)), "platform": "mango",
+                  "estimatedPrice": price("vegetables", 350)})
     if not is_in_stock("fruits"):
-        items.append({"item": "Fruits (banana, blueberries, dragon fruit)", "qty": "week supply", "platform": "mango", "estimatedPrice": 500})
+        items.append({"item": "Fruits (banana, blueberries, dragon fruit)", "qty": "week supply",
+                      "platform": "mango", "estimatedPrice": price("fruits", 500)})
 
     gravies = [d.get("gravy","") for d in week_plan]
     if any("dal" in g or "kadhi" in g or "sambar" in g for g in gravies) and not is_in_stock("dal"):
-        items.append({"item": "Dal / Lentils", "qty": "as needed", "platform": "mango", "estimatedPrice": 130})
+        items.append({"item": "Dal / Lentils", "qty": "as needed", "platform": "mango", "estimatedPrice": price("dal", 130)})
     if any("rice" in d.get("lunch","").lower() for d in week_plan) and not is_in_stock("rice"):
-        items.append({"item": "Rice 5kg", "qty": "1", "platform": "mango", "estimatedPrice": 320})
+        items.append({"item": "Rice 5kg", "qty": "1", "platform": "mango", "estimatedPrice": price("rice", 320)})
     if any("paratha" in d.get("lunch","").lower() or "roti" in d.get("lunch","").lower() for d in week_plan) and not is_in_stock("atta"):
-        items.append({"item": "Atta 1kg", "qty": "1", "platform": "mango", "estimatedPrice": 60})
+        items.append({"item": "Atta 1kg", "qty": "1", "platform": "mango", "estimatedPrice": price("atta", 60)})
 
     return items
+
+async def get_real_prices() -> dict:
+    """Fetch most recent price per item from prices table. Returns {} if table missing."""
+    try:
+        async with httpx.AsyncClient() as client:
+            r = await client.get(
+                sb_url("price_history?select=item,price&order=date.desc&limit=500"),
+                headers=sb_headers()
+            )
+        data = r.json() if isinstance(r.json(), list) else []
+        prices = {}
+        for row in data:
+            item = row.get("item", "").lower().strip()
+            if item and item not in prices:
+                prices[item] = row.get("price", 0)
+        return prices
+    except Exception:
+        return {}
+
+async def save_bill_prices(items: list, store: str):
+    """Save individual line items from a scanned bill to the prices table."""
+    if not items:
+        return
+    today = datetime.now().strftime("%Y-%m-%d")
+    try:
+        async with httpx.AsyncClient() as client:
+            for item in items:
+                name = item.get("name", "").strip().lower()
+                p = float(item.get("price", 0))
+                if name and p > 0:
+                    await client.post(
+                        sb_url("price_history"),
+                        headers={**sb_headers(), "Prefer": "return=representation"},
+                        json={"item": name, "price": p, "store": store, "date": today}
+                    )
+    except Exception as e:
+        print("SAVE PRICES ERROR:", str(e))
 
 async def run_weekly_agent() -> dict:
     """
@@ -700,7 +754,8 @@ async def run_weekly_agent() -> dict:
     # Generate plan with preference overrides
     week_plan = plan_week(history, avoid=avoid, replace=replace)
     await save_plan(week_plan)
-    shopping_list = generate_shopping_list(week_plan, in_stock=in_stock)
+    real_prices = await get_real_prices()
+    shopping_list = generate_shopping_list(week_plan, in_stock=in_stock, real_prices=real_prices)
 
     # Format plan as plain text
     def format_day_type(dt):
@@ -802,7 +857,8 @@ async def run_agent(messages: list) -> dict:
         await save_plan(week_plan)
         pantry_raw = await execute_tool("get_pantry", {})
         pantry = json.loads(pantry_raw)
-        shopping_list = generate_shopping_list(week_plan, in_stock=pantry.get("in_stock", []))
+        real_prices = await get_real_prices()
+        shopping_list = generate_shopping_list(week_plan, in_stock=pantry.get("in_stock", []), real_prices=real_prices)
 
         # Structured plan for the UI to render as cards + rings (text stays for chat).
         weekly_total = sum(int(i.get("estimatedPrice", i.get("estimated_price", 0)) or 0)
@@ -887,12 +943,10 @@ Do not change any meal. Do not show Lunch and Dinner separately."""
 async def run_vision_agent(image_base64: str, image_type: str = "image/jpeg") -> dict:
     """Scan a grocery bill image, extract total + items, log the expense."""
     prompt = (
-        "You are scanning an Indian grocery receipt. Extract:\n"
-        "1. Store name — map to one of: licious, instamart, blinkit, mango, or other\n"
-        "2. Total amount paid (number only, no currency symbol)\n"
-        "3. Key items as a short comma-separated list\n\n"
+        "You are scanning an Indian grocery receipt. Extract every line item with its price.\n\n"
         "Reply ONLY with valid JSON, no extra text:\n"
-        '{"platform":"instamart","amount":890,"items":"chicken breast x2, eggs 6doz","note":"Instamart grocery"}\n\n'
+        '{"platform":"licious","total":1129,"items":[{"name":"chicken breast 450g","price":295},{"name":"eggs 6doz","price":834}]}\n\n'
+        "platform must be one of: licious, instamart, blinkit, mango, or other\n"
         'If the image is unreadable, reply: {"error":"unclear"}'
     )
     msg = HumanMessage(content=[
@@ -917,17 +971,22 @@ async def run_vision_agent(image_base64: str, image_type: str = "image/jpeg") ->
         }
 
     platform = data.get("platform", "mango").lower()
-    amount = float(data.get("amount", 0))
-    note = data.get("note") or data.get("items") or "Bill scan"
-    items = data.get("items", "")
+    line_items = data.get("items", [])
+    # Support both {total} and {amount} keys from the model
+    amount = float(data.get("total") or data.get("amount") or
+                   sum(i.get("price", 0) for i in line_items) or 0)
+    note = f"{len(line_items)} items" if line_items else "Bill scan"
 
     await execute_tool("log_expense", {"platform": platform, "amount": amount, "note": note})
+    await save_bill_prices(line_items, platform)
+
+    items_text = "\n".join(f"• {i['name']} — ₹{i['price']:,.0f}" for i in line_items if i.get("name"))
 
     return {
         "response": (
             f"Logged ₹{amount:,.0f} from {platform.title()}.\n\n"
-            f"{items}\n\n"
-            "Added to this month's spend ✅"
+            f"{items_text}\n\n"
+            "Prices saved — shopping list totals will use these next time ✅"
         ),
         "shopping_list": None,
         "meal_plan": None,
