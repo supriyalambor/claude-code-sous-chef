@@ -353,13 +353,12 @@ When generating shopping list → ALWAYS call get_pantry first, then remove in-s
 Keep responses warm and SHORT. Only show macros/quantities if asked.
 
 TOOL SEQUENCE — follow exactly when user asks for a meal plan:
-  1. call get_meal_history — fetch past 2 weeks, avoid repeating meals
-  2. call get_preferences — get avoid/replace rules
-  3. call plan_week — pass history + avoid + replace from steps above
-  4. call get_pantry — check what is already at home
-  5. call generate_shopping_list — pass in_stock from pantry
-  6. present the plan EXACTLY as returned by plan_week — do NOT invent or change any meal
+  1. call plan_week — pass the avoid list and replace map from PRE-LOADED CONTEXT below
+  2. call get_pantry — check what is already at home
+  3. call generate_shopping_list — pass in_stock from pantry result
+  4. present the plan EXACTLY as returned by plan_week — do NOT invent or change any meal
 
+History and preferences are already loaded — do NOT call get_meal_history or get_preferences.
 NEVER generate a meal from memory. ALWAYS call plan_week first.
 NEVER show a shopping list without calling generate_shopping_list first."""
 
@@ -674,7 +673,7 @@ async def execute_tool(name: str, args: dict) -> str:
             return json.dumps({"history": history})
 
         elif name == "plan_week":
-            history = args.get("history", [])
+            history = args.get("history", []) or _session_state.get("history", [])
             avoid = args.get("avoid", [])
             replace = args.get("replace", {})
             if not history:
@@ -903,8 +902,27 @@ async def run_weekly_agent() -> dict:
 async def run_agent(messages: list) -> dict:
     """Proper tool-calling agent. The LLM decides which tools to call — no keyword matching."""
     now = datetime.now()
+    import asyncio
 
-    chat_messages = [SystemMessage(content=SYSTEM)]
+    # Pre-fetch history + prefs in parallel — eliminates 2 tool round-trips
+    history, prefs_raw = await asyncio.gather(
+        get_history(),
+        execute_tool("get_preferences", {})
+    )
+    prefs = json.loads(prefs_raw) if isinstance(prefs_raw, str) else prefs_raw
+    avoid = prefs.get("avoid", [])
+    replace = prefs.get("replace", {})
+    _session_state["history"] = history
+
+    recent = [h["meal"] for h in history[-7:]] if history else []
+    context_note = (
+        f"\n\nPRE-LOADED CONTEXT — do NOT call get_meal_history or get_preferences:\n"
+        f"Recent meals (avoid repeating): {recent}\n"
+        f"Preferences — avoid: {avoid} | replace: {replace}\n"
+        f"When calling plan_week, pass avoid={avoid} and replace={replace}."
+    )
+
+    chat_messages = [SystemMessage(content=SYSTEM + context_note)]
     chat_messages.append(HumanMessage(content=f"[Today: {now.strftime('%A %d %B %Y')} | Day {now.day}/31]"))
 
     for m in messages[-8:]:

@@ -432,7 +432,7 @@ checks = {
     "in_stock column":          '"in_stock"' in code,
     "No old instock col":       '"instock"' not in code,
     "No hardcoded Groq key":    "gsk_" not in code,
-    "Model llama-3.3-70b":       "llama-3.3-70b-versatile" in code,
+    "Model llama-3.3-70b":        "llama-3.3-70b-versatile" in code,
     "plan_week exists":         "def plan_week" in code,
     "get_history exists":       "def get_history" in code,
     "save_plan exists":         "def save_plan" in code,
