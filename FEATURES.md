@@ -21,6 +21,7 @@ Backlog for the daily build routine. See `VISION.md` for the why.
 - [x] Shopping list with platform grouping (Licious / Instamart / Blinkit / Mango)
 - [x] Expense tracker with budget ring and projected spend
 - [x] Weekly email to Supriya + Vivek every Friday
+- [x] Price intelligence — bill scan extracts line items, stores to `price_history`, shopping list uses real prices
 
 ---
 
@@ -49,9 +50,7 @@ Backlog for the daily build routine. See `VISION.md` for the why.
 
 ## Phase 1.5 — Agent autonomy (data-driven, no auth needed)
 
-- [ ] **Price intelligence store.** `prices` table (item, price, store, date)
-  fed by bill scans. Shopping-list cost estimates read from here instead of
-  hardcoded values. Agent learns "eggs are ₹160/doz now, not ₹139."
+- [x] ~~**Price intelligence store.**~~ Shipped — see ✅ Shipped above.
 
 - [ ] **Monthly grocery recommendation.** From pantry usage + bill scans +
   meal adherence logs, predict and propose next month's staples + quantities.
